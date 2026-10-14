@@ -1,0 +1,43 @@
+name: Build and Publish Rock
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  build-rock:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Check out the repository
+      uses: actions/checkout@v4
+
+    - name: Extract tag
+      run: echo "TAG=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+
+    - name: Verify SemVer format
+      run: |
+        if [[ ! "${TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Error: Tag ${TAG} is not in semver format X.X.X"
+          exit 1
+        fi
+
+    - name: Pack the rock
+      id: rockcraft
+      uses: canonical/craft-actions/rockcraft-pack@main
+
+    - name: Log in to GitHub Container Registry
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | sudo rockcraft.skopeo login \
+          --username "${{ github.actor }}" --password-stdin ghcr.io
+
+    - name: Push the rock to ghcr.io
+      run: |
+        sudo rockcraft.skopeo --insecure-policy copy \
+          "oci-archive:${{ steps.rockcraft.outputs.rock }}" \
+          "docker://ghcr.io/canonical/gh-jira-sync-bot:${TAG}"
